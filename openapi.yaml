@@ -107,23 +107,25 @@ components:
     # ── 首页内容(/content/home)───────────────────────────────────────────
     # 三块 banner 并排,从左到右由 bannerSlots 数组顺序决定。
     # UI 容器最多 3 块;每个 slot 独立类型,后端通过 kind 派发。
+    # 只有 version 必填,其他字段都可空(由 server 端 enabled=false 触发 client 静默不渲染)。
     HomeContent:
       type: object
-      required: [version, bannerSlots, vipPromo, recommend, modelItems, typeTabs, subTabs]
+      required: [version]
       properties:
         version:
           type: string
           description: 语义版本;任一字段更新 +1
         bannerSlots:
           type: array
+          nullable: true
           minItems: 1
           maxItems: 6
           items: { $ref: '#/components/schemas/BannerSlot' }
-        vipPromo:       { $ref: '#/components/schemas/VipPromo' }
-        recommend:      { $ref: '#/components/schemas/Recommend' }
-        modelItems:     { $ref: '#/components/schemas/ModelItemsFeatured' }
-        typeTabs:       { $ref: '#/components/schemas/TypeTabs' }
-        subTabs:        { $ref: '#/components/schemas/SubTabs' }
+        vipPromo:       { $ref: '#/components/schemas/VipPromo',       nullable: true }
+        recommend:      { $ref: '#/components/schemas/Recommend',      nullable: true }
+        modelItems:     { $ref: '#/components/schemas/ModelItemsFeatured', nullable: true }
+        typeTabs:       { $ref: '#/components/schemas/TypeTabs',       nullable: true }
+        subTabs:        { $ref: '#/components/schemas/SubTabs',        nullable: true }
 
     # 通用跳转目标:仅内部路由(viewId + params)。
     # 外部链接由客户端包成 webview viewId,不暴露外链字段。
@@ -301,31 +303,48 @@ components:
 
     TypeTabs:
       type: object
+      required: [tabs, defaultActive]
       properties:
         tabs:
           type: array
+          minItems: 1
           items: { $ref: '#/components/schemas/TypeTab' }
+        defaultActive:
+          type: string
+          maxLength: 32
+          description: server 计算的首项 id = tabs[0].id(渲染时直接默认 active,client 不再算)
 
     TypeTab:
       type: object
       required: [id, label]
       properties:
-        id: { type: string }
-        label: { type: string }
+        id:    { type: string, maxLength: 32 }
+        label: { type: string, maxLength: 64 }
 
     SubTabs:
       type: object
+      required: [byType, defaultActiveByType]
       properties:
-        tabs:
-          type: array
-          items: { $ref: '#/components/schemas/SubTab' }
+        byType:
+          type: object
+          description: 按 parent typeTab.id 分桶,key ⊇ TypeTabs.tabs[*].id
+          additionalProperties:
+            type: array
+            items: { $ref: '#/components/schemas/SubTab' }
+        defaultActiveByType:
+          type: object
+          description: 每个 parent 默认 active 的 sub-tab id = byType[parent][0].id
+          additionalProperties: { type: string }
 
     SubTab:
       type: object
       required: [id, label]
       properties:
-        id: { type: string }
-        label: { type: string }
+        id:           { type: string, maxLength: 32 }
+        label:        { type: string, maxLength: 64 }
+        viewId:       { type: string, maxLength: 64, description: 内部路由 viewId(可选,缺省时点击只切 active 不导航) }
+        params:       { type: object, additionalProperties: true, description: 路由参数(viewId 存在时有效) }
+        externalHref: { type: string, format: uri, description: 外链(与 viewId 互斥,优先 externalHref) }
 
     # ── 模型目录 ─────────────────────────────────────────────────────────
     ModelSummary:

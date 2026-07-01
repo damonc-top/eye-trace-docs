@@ -1,6 +1,6 @@
 # Home Banner Slot 数据流 — 设计-落地-排查-完成
 
-> 时间:2026-06-24 ~ 2026-06-25
+> 时间:2026-06-24 ~ 2026-06-27
 > 范围:`/api/v1/content/home` 的 `bannerSlots` 字段端到端打通
 > 涉及子仓库:`eye-trace-docs`、`eye-trace-config`、`eye-trace-client`、`eye-trace-server`
 
@@ -47,12 +47,14 @@ home_banner_version   (id, version) -- 用于 ETag
 ### 1.5 MinIO URL 规则
 
 ```
-DB image_key:    home/banner/carousel/0.webp
+DB image_key:    home/slot/banner/carousel/0.webp
                      ↓ URLBuilder
-client imageUrl: http://127.0.0.1:9000/eye-trace-assets/home/banner/carousel/0.webp
+client imageUrl: http://127.0.0.1:9000/eye-trace-assets/home/slot/banner/carousel/0.webp
 ```
 
-两模式:`PublicBase` 直连 MinIO(开发期)/ server 代理 `/api/v1/assets/banner/{key}`(生产)。
+- 系统**唯一** MinIO 桶名为 `eye-trace-assets`(带连字符,与项目品牌名对齐)。任何其他命名视为配置漂移。
+- key 规则遵循 `home/<module>/<feature>/...`:`slot` 是功能模块名,`banner` 是其下子目录(主图根)。
+- 两模式:`PublicBase` 直连 MinIO(开发期,需桶开 anonymous read)/ server 代理 `/api/v1/assets/slot/{key}`(生产)。
 
 ---
 
@@ -106,9 +108,9 @@ client imageUrl: http://127.0.0.1:9000/eye-trace-assets/home/banner/carousel/0.w
 
 ```
 MySQL eye_trace (5 表)              MinIO eye-trace-assets (9 obj)
-  home_banner_slots                    home/banner/carousel/{0..5}.webp
-  home_banner_slides                   home/banner/static/{0,1}.webp
-  home_banner_actions                  home/banner/staticActions/0.webp
+  home_banner_slots                    home/slot/banner/carousel/{0..5}.webp
+  home_banner_slides                   home/slot/banner/static/{0,1}.webp
+  home_banner_actions                  home/slot/banner/staticActions/0.webp
   home_banner_targets
   home_banner_version
             │                                  │
@@ -182,7 +184,7 @@ store badge 显示 `home: server etag "dd36f414..."` — 来自 server,非 fallb
 |---|---|
 | DB 表 | 5 |
 | DB 行(slots/slides/actions/targets) | 4 / 6 / 3 / 12 |
-| MinIO 对象 | 9 个 webp,总 335 KiB |
+| MinIO 对象 | 9 个 webp,总 335 KiB | bucket=`eye-trace-assets`,key=`home/slot/banner/{kind}/{pos}.webp` |
 | 契约 schema | `BannerSlot` + 3 个 variant + 3 个共享片段,共约 130 行 yaml |
 | Server LOC | `banner_repo.go` 130 + `banner_service.go` 160 + `cmd/banner-server/main.go` 270 |
 | 端点 | 1 个真实现(`/content/home`),10 个 unimplemented 返 501 |
@@ -192,10 +194,17 @@ store badge 显示 `home: server etag "dd36f414..."` — 来自 server,非 fallb
 | 项 | 备注 |
 |---|---|
 | `internal/api/handler/{auth,asset,content,model}.go` + middleware | 当前 cmd/banner-server 用 oapi-codegen 兜底,正式 handler 重构时补完整 |
-| `GET /api/v1/assets/banner/{key}` 代理 | 当前 PublicBase 直连 MinIO,生产可改成 server 代理 |
+| `GET /api/v1/assets/slot/{key}` 代理 | 当前 PublicBase 直连 MinIO,生产可改成 server 代理;代理路径已与新 key 前缀对齐(`/assets/slot/` 而非历史 `/assets/banner/`) |
 | `internal/api/router.go` | cmd/server/main.go 老装配链需补回 |
 | 其余 10 个端点(workflow-runs / models / auth / assets / me) | 全是 unimplemented,需要逐个补 |
 | vipPromo / recommend / modelItems / typeTabs / subTabs | server 暂返 null,client zod 已支持 nullable,后续接表 |
+
+### 4.5 2026-06-27 资源重定位
+
+- **key 前缀变更**:`home/banner/{kind}/{pos}.webp` → `home/slot/banner/{kind}/{pos}.webp`;遵循 `home/<module>/<feature>/...` 命名约定,`slot` 是模块,`banner` 是其下的子目录(主图统一根)
+- **桶约束**:系统唯一桶 `eye-trace-assets`(带连字符,品牌名 `EyeTraceAI` 对齐),严禁任何其他命名(无连字符变体、`assets`/`storage` 等后缀变体都视为配置漂移)
+- **迁移动作**:`mc cp --recursive` 把 9 张图从本地 `tmp/slot-images/` 上传至 `eye-trace-assets/home/slot/banner/{carousel,static,staticActions}/`,共 335 KiB
+- **seed bump**:`home_banner_version` 从 `2026-06-24.2` → `2026-06-27.1`,触发 client ETag 失效重新拉取
 
 ### 4.4 文件清单(全部交付)
 

@@ -154,6 +154,8 @@ announcement:`'Seedance 2.0 低至 0.35元/秒,不排队!会员限时 37 折,即
 
 上传:`mc cp recommend-icons/*.png local/eye-trace-assets/home/recommend/icons/`
 
+**当前真值快照**:`eye-trace-config/home/recommend.example.yaml`(DB dump + MinIO 列真实对象,作为 seed 重建参考 / 运营评审用)。
+
 ### 2.6 部署链路
 
 ```
@@ -256,12 +258,18 @@ store badge:`home: server · etag "af3c51e..."`
 eye-trace-docs/
 └── home-recommend-flow.md                                  # 本文档
 
+eye-trace-config/
+└── home/recommend.example.yaml                             # DB 真值镜像快照
+                                                          # (8 卡 + 6 icon key + 8 target + 4 动画参数)
+                                                          # 数据来源:MySQL dump + MinIO 列真实对象
+
 eye-trace-server/backend/
 ├── migrations/000003_home_recommend.{up,down}.sql           # 4 表 DDL
 ├── migrations/000004_home_recommend_seed.{up,down}.sql      # 显式 id seed
 ├── internal/content/recommend_repo.go                       # RecommendRepo + MySQL 实现
 ├── internal/content/banner_service.go                      # +RecommendView / +buildRecommend / +ETag hash
-└── cmd/banner-server/main.go                               # +recRepo 注入 / +toOpenAPIRecommend
+├── cmd/banner-server/main.go                               # +recRepo 注入 / +toOpenAPIRecommend
+└── cmd/recommend-seed-sync/main.go                         # 列 MinIO → 写真实 icon_key → bump version
 
 tmp/
 ├── py-4.html                                               # liblib DOM 切片(输入)
@@ -270,5 +278,6 @@ tmp/
 ├── apply_recommend_migrations.sh                           # DB migrate 辅助脚本
 ├── dump_recommend_icons.sh                                 # DB ↔ MinIO 校验
 ├── bump_recommend_version.sh                               # ETag bump 辅助
-└── home-recommend-icons.png                                # 端到端验证截图(icons 已加载)
+├── home-recommend-icons.png                                # 端到端验证截图(icons 已加载)
+└── home-recommend-icons-final.png                          # 2026-06-27 6 icon 全 200 截图
 ```

@@ -52,10 +52,19 @@ SSE 事件**必须**能无损翻译成它们:
 
 ### 1.3 内容数据形状对齐
 
-client `src/config/static/types.ts` 已定义 `ModelItemCard`(判别联合:`single`/`preview-deck`/`gallery`)、
-`TypeTab`、`SubTab`、`RecommendModelCard`、`BannerCarouselConfig`。
-`GET /api/v1/content/home` 的响应**直接复用这些形状**,让前端把"硬编码 YAML"无缝换成"API 返回",
-不改渲染组件。次级模型应把这些 TS interface 原样翻译成 OpenAPI schema。
+`GET /api/v1/content/home` 响应**直接复用** client `src/config/static/types.ts` 已有的形状,
+让前端把"硬编码 YAML"无缝换成"API 返回",不改渲染组件。
+次级模型应把这些 TS interface 原样翻译成 OpenAPI schema。
+
+**BannerCarousel 替代(2026-06-24)**:老 `BannerCarouselConfig`(carousel + sideCards + overlayLinks)
+已废弃,改用判别联合 `BannerSlot`(见 §3)。
+client 端 `types.ts` 删除旧 `BannerCarouselConfig` / `CarouselSlideConfig` / `StaticCardConfig` /
+`OverlayLinkConfig`,替换为 `BannerSlot` / `CarouselSlide` / `SingleBanner` / `ActionButton` /
+`RouteTarget`。
+旧 `BannerCarouselConfig.src` 改名为 `imageUrl`,旧 `href` 改名为 `target.viewId + params`
+(走内部路由,不暴露外链字段;外部链接由客户端包成 webview viewId)。
+`home_content_slots` 表同步重命名为 `home_banner_slots`,并新增 `home_banner_targets` 表
+存跳转目标(viewId + params)。
 
 ---
 
@@ -217,6 +226,88 @@ components:
         mediaType: { $ref: '#/components/schemas/MediaType' }
         # 渲染相关字段镜像 client ModelItemCardBase(previews/badge/exclusive/...)
         # 次级模型补全,对照 eye-trace-client/src/config/static/types.ts
+
+    # ── 首页 banner slot(替代 BannerCarouselConfig)────────────────────
+    # 三种变体:carousel(左 36.42%)/ static(单图) / staticActions(单图+按钮条)。
+    # 数组长度 1..3;每个 slot 独立类型。
+    BannerSlot:
+      oneOf:
+        - $ref: '#/components/schemas/BannerSlotCarousel'
+        - $ref: '#/components/schemas/BannerSlotStatic'
+        - $ref: '#/components/schemas/BannerSlotStaticActions'
+      discriminator:
+        propertyName: kind
+        mapping:
+          carousel:      '#/components/schemas/BannerSlotCarousel'
+          static:        '#/components/schemas/BannerSlotStatic'
+          staticActions: '#/components/schemas/BannerSlotStaticActions'
+
+    BannerSlotCarousel:
+      type: object
+      required: [kind, slides]
+      properties:
+        kind: { type: string, enum: [carousel] }
+        intervalMs: { type: integer, default: 5000, minimum: 1000 }
+        slides:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/CarouselSlide' }
+
+    BannerSlotStatic:
+      type: object
+      required: [kind, banner]
+      properties:
+        kind: { type: string, enum: [static] }
+        banner: { $ref: '#/components/schemas/SingleBanner' }
+
+    BannerSlotStaticActions:
+      type: object
+      required: [kind, banner, actions]
+      properties:
+        kind: { type: string, enum: [staticActions] }
+        banner: { $ref: '#/components/schemas/SingleBanner' }
+        actions:
+          type: array
+          minItems: 1
+          maxItems: 8
+          items: { $ref: '#/components/schemas/ActionButton' }
+
+    SingleBanner:
+      type: object
+      required: [imageUrl, target]
+      properties:
+        imageUrl: { type: string, format: uri }
+        alt:      { type: string }
+        target:   { $ref: '#/components/schemas/RouteTarget' }
+
+    CarouselSlide:
+      type: object
+      required: [imageUrl, target]
+      properties:
+        imageUrl: { type: string, format: uri }
+        alt:      { type: string }
+        target:   { $ref: '#/components/schemas/RouteTarget' }
+
+    ActionButton:
+      type: object
+      required: [label, target]
+      properties:
+        label:
+          type: string
+          maxLength: 8
+        iconUrl: { type: string, format: uri }
+        target:  { $ref: '#/components/schemas/RouteTarget' }
+
+    # 跳转目标:只支持内部路由 viewId + params。
+    # 外部链接由 client 包成 webview viewId,契约不暴露外链字段。
+    RouteTarget:
+      type: object
+      required: [viewId]
+      properties:
+        viewId: { type: string }
+        params:
+          type: object
+          additionalProperties: true
 ```
 
 ---
@@ -252,6 +343,8 @@ data: {"jobId":"...","status":"failed","code":"GENERATION_FAILED","message":"...
 ---
 
 ## 5. 代码生成落地
+
+完整 OpenAPI 契约见同目录 `openapi.yaml`(本骨架的展开版本,含本节追加的 `BannerSlot` 等)。
 
 ```bash
 # Go server(放 server 的 Makefile)

@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "additionalDirectories": [
+      "../eye-trace-client",
+      "../eye=trace-server",
+      "../eye-trace-config"
+    ]
+  }
+}

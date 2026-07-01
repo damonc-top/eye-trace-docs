@@ -1,0 +1,875 @@
+# Eye Trace API — OpenAPI 3.1 契约(全量)
+#
+# 这是 client ↔ server 的**唯一契约真相源**。
+# 任何一方都不要手写请求/响应类型 ——
+# client 跑 `openapi-typescript` 生成 `src/api/schema.gen.ts`,
+# server 跑 `oapi-codegen` 生成 `internal/api/api.gen.go`。
+#
+# 本文件由 `eye-trace-docs/openapi-skeleton.md` 的骨架约定补全而来;
+# 修改契约先改 skeleton.md,再同步到本 yaml。
+
+openapi: 3.1.0
+info:
+  title: Eye Trace API
+  version: 0.1.0
+  description: |
+    EyeTraceAI client↔server 契约。常规操作走 REST + JSON,
+    生图进度/结果走 SSE,文件走 multipart。
+servers:
+  - url: /api/v1
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    TenantId:
+      name: X-Tenant-Id
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema: { type: string }
+
+  schemas:
+    # ── 共享枚举(与 eye-trace-config/shared/enums.yaml 同源)──────────────
+    JobStatus:
+      type: string
+      enum: [pending, running, succeeded, failed, cancelled]
+
+    MediaType:
+      type: string
+      enum: [image, video]
+
+    ModelType:
+      type: string
+      enum: [checkpoint, lora, template, workflow, video]
+      description: |
+        模型分类,与 models.type enum 对齐(后端 MySQL models.type 列)。
+        list/detail 都返;client 瀑布卡用 typeTag+type 决定右上角徽章。
+        本 enum 替代旧"checkpoint / LoRA / 模版"自由文本。
+
+    ErrorCode:
+      type: string
+      enum:
+        - VALIDATION_FAILED
+        - UNAUTHORIZED
+        - FORBIDDEN
+        - NOT_FOUND
+        - QUOTA_EXCEEDED
+        - WORKER_UNAVAILABLE
+        - GENERATION_FAILED
+        - CANCELLED
+        - RATE_LIMITED
+        - INTERNAL
+
+    # ── 统一错误信封(所有 4xx/5xx)────────────────────────────────────────
+    Problem:
+      type: object
+      required: [type, title]
+      properties:
+        type: { type: string, format: uri }
+        title: { type: string }
+        status: { type: integer }
+        detail: { type: string }
+        instance: { type: string }
+        code: { $ref: '#/components/schemas/ErrorCode' }
+        requestId: { type: string }
+
+    # ── 生图任务 ─────────────────────────────────────────────────────────
+    CreateRunRequest:
+      type: object
+      required: [modelId, params]
+      properties:
+        modelId: { type: string }
+        params:
+          type: object
+          additionalProperties: true
+        inputAssetIds:
+          type: array
+          items: { type: string }
+
+    WorkflowRun:
+      type: object
+      required: [jobId, status, createdAt]
+      properties:
+        jobId:        { type: string, format: uuid }
+        status:       { $ref: '#/components/schemas/JobStatus' }
+        modelId:      { type: string }
+        progress:     { type: number, minimum: 0, maximum: 1 }
+        resultUrl:    { type: string, nullable: true }
+        thumbnailUrl: { type: string, nullable: true }
+        error:        { type: string, nullable: true }
+        createdAt:    { type: string, format: date-time }
+        finishedAt:   { type: string, format: date-time, nullable: true }
+
+    # ── 首页内容(/content/home)───────────────────────────────────────────
+    # 三块 banner 并排,从左到右由 bannerSlots 数组顺序决定。
+    # UI 容器最多 3 块;每个 slot 独立类型,后端通过 kind 派发。
+    # 只有 version 必填,其他字段都可空(由 server 端 enabled=false 触发 client 静默不渲染)。
+    HomeContent:
+      type: object
+      required: [version]
+      properties:
+        version:
+          type: string
+          description: 语义版本;任一字段更新 +1
+        bannerSlots:
+          type: array
+          nullable: true
+          minItems: 1
+          maxItems: 6
+          items: { $ref: '#/components/schemas/BannerSlot' }
+        vipPromo:       { $ref: '#/components/schemas/VipPromo',       nullable: true }
+        recommend:      { $ref: '#/components/schemas/Recommend',      nullable: true }
+        modelItems:     { $ref: '#/components/schemas/ModelItemsFeatured', nullable: true }
+        typeTabs:       { $ref: '#/components/schemas/TypeTabs',       nullable: true }
+        subTabs:        { $ref: '#/components/schemas/SubTabs',        nullable: true }
+
+    # 通用跳转目标:仅内部路由(viewId + params)。
+    # 外部链接由客户端包成 webview viewId,不暴露外链字段。
+    RouteTarget:
+      type: object
+      required: [viewId]
+      properties:
+        viewId: { type: string, description: 客户端路由 viewId,如 "model-detail" }
+        params:
+          type: object
+          additionalProperties: true
+          description: "路由参数,如 { id: \"1\" }"
+
+    # ── BannerSlot:三种变体的判别联合 ────────────────────────────────────
+    BannerSlot:
+      oneOf:
+        - $ref: '#/components/schemas/BannerSlotCarousel'
+        - $ref: '#/components/schemas/BannerSlotStatic'
+        - $ref: '#/components/schemas/BannerSlotStaticActions'
+      discriminator:
+        propertyName: kind
+        mapping:
+          carousel:      '#/components/schemas/BannerSlotCarousel'
+          static:        '#/components/schemas/BannerSlotStatic'
+          staticActions: '#/components/schemas/BannerSlotStaticActions'
+
+    # 类型 1:多图轮播(占左 ~36.42% 宽)
+    BannerSlotCarousel:
+      type: object
+      required: [kind, slides]
+      properties:
+        kind: { type: string, enum: [carousel] }
+        intervalMs:
+          type: integer
+          default: 5000
+          minimum: 1000
+          description: 自动切换间隔(ms)
+        slides:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/CarouselSlide' }
+
+    CarouselSlide:
+      type: object
+      required: [imageUrl, target]
+      properties:
+        imageUrl: { type: string, format: uri }
+        alt: { type: string }
+        target: { $ref: '#/components/schemas/RouteTarget' }
+
+    # 类型 2:单图(static,占 flex-1)
+    BannerSlotStatic:
+      type: object
+      required: [kind, banner]
+      properties:
+        kind: { type: string, enum: [static] }
+        banner: { $ref: '#/components/schemas/SingleBanner' }
+
+    # 类型 3:单图 + 底部按钮条(占 flex-1)
+    BannerSlotStaticActions:
+      type: object
+      required: [kind, banner, actions]
+      properties:
+        kind: { type: string, enum: [staticActions] }
+        banner: { $ref: '#/components/schemas/SingleBanner' }
+        actions:
+          type: array
+          minItems: 1
+          maxItems: 8
+          description: 底部按钮图标条;UI 类 gap-0.5 + min-w-0,过多会换行
+          items: { $ref: '#/components/schemas/ActionButton' }
+
+    SingleBanner:
+      type: object
+      required: [imageUrl, target]
+      properties:
+        imageUrl: { type: string, format: uri }
+        alt: { type: string }
+        target: { $ref: '#/components/schemas/RouteTarget' }
+
+    ActionButton:
+      type: object
+      required: [label, target]
+      properties:
+        label:
+          type: string
+          maxLength: 8
+          description: 按钮文字;a11y 必填,UI 配合 iconUrl 渲染为图标条
+        iconUrl:
+          type: string
+          format: uri
+          description: 按钮图标;可省略,省略时只显示 label
+        target: { $ref: '#/components/schemas/RouteTarget' }
+
+    # ── /content/home 其他块(沿用 liblib 形态)───────────────────────────
+    VipPromo:
+      type: object
+      nullable: true
+      required: [power, badge, prefix, suffix, badgeBgUrl]
+      properties:
+        power: { type: integer }
+        badge: { type: string }
+        prefix: { type: string }
+        suffix: { type: string }
+        badgeBgUrl: { type: string, format: uri }
+
+    Recommend:
+      type: object
+      required: [cardWidth, perCharDelay, charFadeMs, holdMs]
+      properties:
+        announcement: { $ref: '#/components/schemas/RecommendAnnouncement' }
+        models:
+          type: array
+          items: { $ref: '#/components/schemas/RecommendModelCard' }
+        cardWidth:     { type: integer, default: 248 }
+        perCharDelay:  { type: number,  default: 0.04 }
+        charFadeMs:    { type: integer, default: 600 }
+        holdMs:        { type: integer, default: 1000 }
+
+    RecommendAnnouncement:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string }
+        viewId: { type: string }
+        params:
+          type: object
+          additionalProperties: true
+        externalHref: { type: string, format: uri }
+
+    RecommendModelCard:
+      type: object
+      required: [title, desc, bgColor, accentColor]
+      properties:
+        title: { type: string }
+        desc: { type: string }
+        bgColor:
+          type: string
+          pattern: "^#[0-9A-Fa-f]{6}$"
+          description: CSS hex 颜色,6 位 hex 配 # 前缀
+        accentColor:
+          type: string
+          pattern: "^#[0-9A-Fa-f]{6}$"
+          description: CSS hex 颜色,SVG corner accent fill
+        icon:
+          type: string
+          format: uri
+          description: 模型 logo 图标(MinIO URL,经 server 拼装)
+        badge:
+          type: string
+          maxLength: 8
+          description: 卡片右上角徽章(NEW / HOT / 独家 ...),省略则不渲染
+        viewId: { type: string }
+        params:
+          type: object
+          additionalProperties: true
+        externalHref: { type: string, format: uri }
+
+    ModelItemsFeatured:
+      type: object
+      required: [gap]
+      properties:
+        gap:   { type: integer, default: 5 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ModelItemCard' }
+
+    ModelItemCard:
+      type: object
+      required: [modelId, title]
+      properties:
+        modelId: { type: string }
+        title: { type: string }
+        cover: { type: string }
+
+    # ── 模型详情 ────────────────────────────────────────────────────
+    # 设计:见 eye-trace-docs/model-detail-flow.md §3
+    BaseModelInfo:
+      type: object
+      required: [type, code, name, provider, sortOrder, enabled]
+      properties:
+        type:      { type: integer, description: liblib baseType/supportedBaseTypes 数字枚举 }
+        code:      { type: integer, description: 当前等同 type;保留给 provider adapter 兼容 }
+        name:      { type: string, maxLength: 96, description: 展示名,如 Seedream 4.5 }
+        provider:  { type: string, maxLength: 64, description: liblib/bytedance/openai/comfyui 等 }
+        family:    { type: string, maxLength: 64, nullable: true }
+        modelKey:  { type: string, maxLength: 96, nullable: true, description: provider 侧真实模型 key }
+        sortOrder: { type: integer }
+        enabled:   { type: boolean }
+
+    BaseModelList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/BaseModelInfo' }
+
+    AuthorBrief:
+      type: object
+      required: [userUuid, nickname]
+      properties:
+        userUuid:      { type: string, minLength: 32, maxLength: 32, description: liblib userUuid 32hex }
+        nickname:      { type: string, maxLength: 128 }
+        avatar:        { type: string, format: uri, nullable: true }
+        isAuthorized:  { type: boolean, description: liblib authAuthorStatus=1 → true }
+        isFollow:      { type: boolean, nullable: true, description: 当前用户是否关注(未登录/匿名= null) }
+        workCount:     { type: integer, minimum: 0, nullable: true }
+        followerCount: { type: integer, minimum: 0, nullable: true }
+        likeCount:     { type: integer, minimum: 0, nullable: true }
+
+    VersionBrief:
+      type: object
+      required: [versionId, versionUuid, name, isCurrent]
+      properties:
+        versionId:   { type: string, description: server 业务 id(stringified int) }
+        versionUuid: { type: string, description: liblib version uuid 32hex }
+        name:        { type: string, maxLength: 64, description: "1.0" }
+        isCurrent:   { type: boolean }
+        isOriginal:  { type: boolean }
+        baseType:    { type: integer, description: liblib baseType 枚举;详情页"适用底模"用 }
+        supportedBaseTypes:
+          type: array
+          items: { type: integer }
+        supportedBaseModels:
+          type: array
+          items: { $ref: '#/components/schemas/BaseModelInfo' }
+        auditStatus: { type: integer, enum: [0, 1] }
+        triggerWord: { type: string, nullable: true }
+        runCount:    { type: integer, minimum: 0, nullable: true }
+
+    CounterSummary:
+      type: object
+      required: [useCount, likeCount]
+      properties:
+        useCount:      { type: integer, minimum: 0, description: liblib counter.runCount }
+        likeCount:     { type: integer, minimum: 0, description: liblib counter.likeCount }
+        downloadCount: { type: integer, minimum: 0, nullable: true }
+        commentCount:  { type: integer, minimum: 0, nullable: true }
+        imageCount:    { type: integer, minimum: 0, nullable: true, description: liblib counter.imageCount }
+        heat:          { type: integer, minimum: 0, nullable: true }
+        heatLevel:
+          type: string
+          enum: [cold, warm, hot]
+          description: server 派生 UI 等级(0..999=cold, 1000..9999=warm, ≥10000=hot)
+        fetchedAt:     { type: string, format: date-time }
+
+    LiblibTagNode:
+      type: object
+      required: [id, label, level]
+      properties:
+        id:       { type: integer }
+        code:     { type: string }
+        label:    { type: string, maxLength: 64 }
+        level:    { type: integer, minimum: 1, maximum: 6 }
+        parentId: { type: integer, nullable: true }
+        path:     { type: array, items: { type: integer } }
+
+    SampleImage:
+      type: object
+      required: [assetId, url, width, height, sort]
+      properties:
+        assetId: { type: string, description: 字符串化的 assets.id }
+        url:     { type: string, format: uri, description: "走 /api/v1/assets/{id}/content" }
+        width:   { type: integer, minimum: 1 }
+        height:  { type: integer, minimum: 1 }
+        prompt:  { type: string, nullable: true, description: 该图 generateInfo.prompt(详情页"展开 prompt"用) }
+        sort:    { type: integer, minimum: 0 }
+
+    ReturnPicItem:
+      type: object
+      required: [batchId, userUuid, nickname, createdAt, images]
+      properties:
+        batchId:   { type: string }
+        userUuid:  { type: string }
+        nickname:  { type: string, maxLength: 128 }
+        avatar:    { type: string, format: uri, nullable: true }
+        title:     { type: string, nullable: true }
+        likeCount: { type: integer, minimum: 0 }
+        isAuthor:  { type: boolean, description: 是否模型作者本人发布 }
+        topFlag:   { type: boolean, description: 是否置顶/官方推荐 }
+        createdAt: { type: string, format: date-time }
+        images:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [assetId, url, width, height]
+            properties:
+              assetId: { type: string }
+              url:     { type: string, format: uri }
+              width:   { type: integer }
+              height:  { type: integer }
+
+    ReturnPicsSummary:
+      type: object
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0 }
+        items: { type: array, items: { $ref: '#/components/schemas/ReturnPicItem' } }
+
+    ModelHeadCounter:
+      type: object
+      properties:
+        value: { type: string, description: 计数栏显示文本,如 "25.0k" / "不可下载" }
+        tooltip: { type: string, nullable: true }
+        iconUrl:
+          type: string
+          format: uri
+          nullable: true
+          description: 可选 MinIO/CDN 图标 URL;存在时 client 优先渲染
+        iconKind:
+          type: string
+          enum: [play, download, image, heart]
+          nullable: true
+          description: 固定 liblib 风格 12px UI 图标;无须落 MinIO
+        iconPath: { type: string, nullable: true, description: 兼容旧前端的 SVG path data }
+        divider: { type: boolean, nullable: true }
+        moreMenu: { type: boolean, nullable: true }
+        highlight: { type: boolean, nullable: true }
+        highlightClass: { type: string, nullable: true }
+
+    CommentItem:
+      type: object
+      required: [commentId, userUuid, nickname, content, createdAt]
+      properties:
+        commentId: { type: string }
+        userUuid:  { type: string }
+        nickname:  { type: string, maxLength: 128 }
+        avatar:    { type: string, format: uri, nullable: true }
+        content:   { type: string }
+        likeCount: { type: integer, minimum: 0 }
+        isAuthor:  { type: boolean }
+        topFlag:   { type: boolean }
+        createdAt: { type: string, format: date-time }
+        replies:
+          type: array
+          items: { $ref: '#/components/schemas/CommentItem' }
+
+    CommentsSummary:
+      type: object
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0 }
+        items: { type: array, items: { $ref: '#/components/schemas/CommentItem' } }
+
+    ModelDetail:
+      type: object
+      required: [modelId, name, type, mediaType, cover, versions, counters, stats, comments]
+      properties:
+        modelId:        { type: string }
+        name:           { type: string, maxLength: 255 }
+        type:           { $ref: '#/components/schemas/MediaType' }
+        mediaType:      { $ref: '#/components/schemas/MediaType' }
+        cover:          { type: string, format: uri }
+        author:         { $ref: '#/components/schemas/AuthorBrief', nullable: true }
+        typeTag:        { type: string, nullable: true }
+        typeTagSuffix:  { type: string, nullable: true }
+        exclusive:      { type: boolean }
+        actionLabel:    { type: string, nullable: true }
+        viewId:         { type: string, nullable: true }
+        externalHref:   { type: string, format: uri, nullable: true }
+        baseModel:      { type: string, nullable: true }
+        supportedBaseTypes:
+          type: array
+          items: { type: integer }
+        supportedBaseModels:
+          type: array
+          items: { $ref: '#/components/schemas/BaseModelInfo' }
+        versions:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/VersionBrief' }
+        currentVersion: { $ref: '#/components/schemas/VersionBrief' }
+        description:    { type: string, nullable: true, description: 详情长文本;客户端按 HTML 或 markdown 自行决定 }
+        tags:
+          type: array
+          items: { type: string, maxLength: 32 }
+        liblibTags:
+          type: array
+          items: { $ref: '#/components/schemas/LiblibTagNode' }
+        sampleImages:
+          type: array
+          items: { $ref: '#/components/schemas/SampleImage' }
+        suggestedPrompts:
+          type: array
+          items: { type: string, maxLength: 512 }
+        counters:  { $ref: '#/components/schemas/CounterSummary' }
+        stats:     { $ref: '#/components/schemas/ReturnPicsSummary' }
+        headCounters:
+          type: array
+          items: { $ref: '#/components/schemas/ModelHeadCounter' }
+        comments:  { $ref: '#/components/schemas/CommentsSummary' }
+        viewCount: { type: integer, minimum: 0 }
+        likeCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ReturnPicPage:
+      type: object
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0 }
+        page:  { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 60 }
+        items: { type: array, items: { $ref: '#/components/schemas/ReturnPicItem' } }
+
+    CommentsPage:
+      type: object
+      required: [total, items]
+      properties:
+        total: { type: integer, minimum: 0 }
+        page:  { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1, maximum: 60 }
+        items: { type: array, items: { $ref: '#/components/schemas/CommentItem' } }
+
+    TypeTabs:
+      type: object
+      required: [tabs, defaultActive]
+      properties:
+        tabs:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/TypeTab' }
+        defaultActive:
+          type: string
+          maxLength: 32
+          description: server 计算的首项 id = tabs[0].id(渲染时直接默认 active,client 不再算)
+
+    TypeTab:
+      type: object
+      required: [id, label]
+      properties:
+        id:    { type: string, maxLength: 32 }
+        label: { type: string, maxLength: 64 }
+
+    SubTabs:
+      type: object
+      required: [byType, defaultActiveByType]
+      properties:
+        byType:
+          type: object
+          description: 按 parent typeTab.id 分桶,key ⊇ TypeTabs.tabs[*].id
+          additionalProperties:
+            type: array
+            items: { $ref: '#/components/schemas/SubTab' }
+        defaultActiveByType:
+          type: object
+          description: 每个 parent 默认 active 的 sub-tab id = byType[parent][0].id
+          additionalProperties: { type: string }
+
+    SubTab:
+      type: object
+      required: [id, label]
+      properties:
+        id:           { type: string, maxLength: 32 }
+        label:        { type: string, maxLength: 64 }
+        viewId:       { type: string, maxLength: 64, description: 内部路由 viewId(可选,缺省时点击只切 active 不导航) }
+        params:       { type: object, additionalProperties: true, description: 路由参数(viewId 存在时有效) }
+        externalHref: { type: string, format: uri, description: 外链(与 viewId 互斥,优先 externalHref) }
+
+    # ── 模型目录 ─────────────────────────────────────────────────────────
+    ModelSummary:
+      type: object
+      required: [modelId, title, mediaType, cover]
+      properties:
+        modelId:       { type: string }
+        title:         { type: string }
+        author:        { type: string }
+        authorAvatar:  { type: string, format: uri }
+        cover:         { type: string, format: uri }
+        typeTag:       { type: string }
+        mediaType:     { $ref: '#/components/schemas/MediaType' }
+        # 模型分类(checkpoint / lora / template / workflow / video)。
+        # 服务端从 models.type 直接读;list/detail 都返,瀑布卡片右上角徽章用。
+        type:          { $ref: '#/components/schemas/ModelType' }
+        # 生图数(= liblib counter.runCount);从 model_counters.run_count JOIN。
+        useCount:      { type: integer, minimum: 0, nullable: true }
+        # 返图数(= liblib counter.imageCount);从 model_counters.image_count JOIN。
+        imageCount:    { type: integer, minimum: 0, nullable: true }
+        # 详情跳转(viewId="model.detail");list 必返,client 直接 navigate。
+        viewId:        { type: string, nullable: true }
+
+    ModelList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ModelSummary' }
+        nextCursor: { type: string, nullable: true }
+
+paths:
+  # ── /content/home ─────────────────────────────────────────────────────
+  /content/home:
+    get:
+      summary: 首页运营内容 + 首页精选模型
+      description: |
+        返回首页 5 个数据块。`modelItems.items` 不直接存卡片 JSON,
+        而是存 `{ids: [...]}`,server 端按 id 联查派生 `ModelItemCard`。
+        支持 ETag/SWR:`If-None-Match` 命中即返 304。
+      parameters:
+        - in: header
+          name: If-None-Match
+          required: false
+          schema: { type: string }
+          description: 上次响应 ETag(带/不带 W/ 前缀均可)
+      responses:
+        '200':
+          description: 命中
+          headers:
+            ETag:
+              schema: { type: string }
+            Cache-Control:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/HomeContent' }
+        '304':
+          description: ETag 命中
+        '500':
+          description: 服务异常
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ── /models ───────────────────────────────────────────────────────────
+  /base-models:
+    get:
+      summary: 基础模型字典
+      description: |
+        返回 Liblib `baseType/supportedBaseTypes` 数字枚举到展示名/provider/modelKey 的映射。
+        详情页用它渲染“基础模型”;生成页后续用它决定 provider adapter 和计费。
+      responses:
+        '200':
+          description: 命中
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BaseModelList' }
+        '500':
+          description: 服务异常
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /models:
+    get:
+      summary: 模型目录(无限滚动)
+      description: 游标分页;`sort` 一期只支持 `latest`。
+      parameters:
+        - in: query
+          name: type
+          schema: { $ref: '#/components/schemas/MediaType' }
+        - in: query
+          name: baseModel
+          schema: { type: string }
+        - in: query
+          name: tag
+          schema:
+            type: array
+            items: { type: string }
+        - in: query
+          name: search
+          schema: { type: string }
+        - in: query
+          name: cursor
+          schema: { type: string }
+          description: 不透明游标(上次响应 nextCursor 透传)
+        - in: query
+          name: limit
+          schema: { type: integer }
+        - in: query
+          name: sort
+          schema:
+            type: string
+            enum: [latest]
+      responses:
+        '200':
+          description: 命中
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelList' }
+        '400':
+          description: 参数非法
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /models/{modelId}:
+    get:
+      summary: 模型详情
+      description: |
+        单条模型详情。一次返回 model 主块 + versions[] + sampleImages(详情轮播) +
+        counters + stats(返图首页 8 条) + comments(评论首页 8 条)。
+        返图/评论翻页走独立子端点 `/models/{id}/return-pics` 与 `/models/{id}/comments`。
+        设计:见 eye-trace-docs/model-detail-flow.md §3。
+      parameters:
+        - in: path
+          name: modelId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: commentPage
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: returnPicPage
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: includeRawDesc
+          schema: { type: boolean, default: false, description: 是否附带 liblib 原文 versionDesc(HTML) }
+      responses:
+        '200':
+          description: 命中
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ModelDetail' }
+        '404':
+          description: 模型不存在或未审核通过
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /models/{modelId}/return-pics:
+    get:
+      summary: 模型详情 - 返图分页
+      description: |
+        用户用此模型生成的返图,按 `top_flag DESC, liblib_create_time DESC` 排序。
+        详情页用 useInfiniteQuery 翻页。
+      parameters:
+        - { in: path, name: modelId, required: true, schema: { type: string } }
+        - { in: query, name: page,     schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 60, default: 12 } }
+      responses:
+        '200':
+          description: 命中
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ReturnPicPage' }
+        '404':
+          description: 模型不存在
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /models/{modelId}/comments:
+    get:
+      summary: 模型详情 - 评论分页
+      description: |
+        评论树(顶层 + 一层回复嵌套);page=1 顶层 8 条 + 每条 replies[] ≤5。
+        详情页用 useInfiniteQuery 翻页。
+      parameters:
+        - { in: path, name: modelId, required: true, schema: { type: string } }
+        - { in: query, name: page,     schema: { type: integer, minimum: 1, default: 1 } }
+        - { in: query, name: pageSize, schema: { type: integer, minimum: 1, maximum: 60, default: 8 } }
+      responses:
+        '200':
+          description: 命中
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CommentsPage' }
+        '404':
+          description: 模型不存在
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  # ── /workflow-runs ────────────────────────────────────────────────────
+  /workflow-runs:
+    post:
+      summary: 提交生图
+      description: 写操作支持 `Idempotency-Key` header。
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+        - $ref: '#/components/parameters/TenantId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRunRequest' }
+      responses:
+        '201':
+          description: 已创建
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkflowRun' }
+        '400':
+          description: 参数非法
+          content:
+            application/problem+json:
+              schema: { $ref: '#/components/schemas/Problem' }
+
+  /workflow-runs/{jobId}:
+    get:
+      summary: 查询 job 状态
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: 命中
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/WorkflowRun' }
+    delete:
+      summary: 取消 job
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '204':
+          description: 已取消
+
+  /workflow-runs/{jobId}/events:
+    get:
+      summary: job 事件 SSE 流
+      description: |
+        `text/event-stream`。
+        事件:queued / progress / succeeded / failed。
+        终态事件发送后 server 主动关闭流。
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema: { type: string, format: uuid }
+        - in: header
+          name: Last-Event-ID
+          required: false
+          schema: { type: string }
+          description: 断线重连时透传,server 重放未发事件
+      responses:
+        '200':
+          description: SSE 流
+          content:
+            text/event-stream:
+              schema: { type: string }

@@ -2,9 +2,9 @@
 
 > 版本: 1.0 | 日期: 2026-06-12 | 状态: 规范
 
-本文是 EyeTraceAI 的顶层架构总纲,统合并扩展现有四份文档:
-`go-server-structure.md`、`openapi-skeleton.md`、`client-data-split-guide.md`、
-`liblib-client-function-map.md`。本文只做**扩展与补全**,不推翻上述文档的任何既有决策。
+本文是 EyeTraceAI 的顶层架构总纲,统合并扩展以下文档(原列出的 `go-server-structure.md` 已并入本文 §5,`client-data-split-guide.md` 已改名为 [`client_data_split.md`](./client_data_split.md)):
+[`openapi-skeleton.md`](./openapi-skeleton.md)、[`client_data_split.md`](./client_data_split.md)、
+[`liblib-client-function-map.md`](./liblib-client-function-map.md)、[`client-architecture.md`](./client-architecture.md)。本文只做**扩展与补全**,不推翻上述文档的任何既有决策。
 凡与既有文档重叠处,以既有文档为准;本文新增的部分(Worker-Agent、参数化管线、MySQL 表)为唯一新增真相源。
 
 ## 目录
@@ -13,7 +13,7 @@
 2. 开发阶段规划
 3. Worker-Agent 详细设计
 4. 参数化管线模板系统
-5. Server 核心模块(对齐并扩展 go-server-structure.md)
+5. Server 核心模块(原 `go-server-structure.md` 内容已并入,无独立分卷)
 6. Client 侧实时进度接入
 7. 数据库核心表设计(MySQL)
 8. eye-trace-config 扩展清单
@@ -29,7 +29,7 @@
 | 关注点 | 主文档 | 子文档(展开施工) |
 |---|---|---|
 | Client 架构与 Phase 1 实施 | 本文 §2 Phase 1 | [`client-architecture.md`](./client-architecture.md) — 14 路由外壳清单、AppShell 形态选择、UI 原语、平台桥、设计 token、命名迁移落点、Phase 1 完成判据、PR 拆分 |
-| Server 模块 | 本文 §5 + [`server_guide.md`](./server_guide.md) | (沿用,不分流) |
+| Server 模块 | 本文 §5(原 `server_guide.md` 已并入,无独立分卷) | — |
 | 数据契约 / 拆分 | 本文 §7 + [`client_data_split.md`](./client_data_split.md) | (沿用,不分流) |
 | liblib 仿站功能面 | [`liblib-client-function-map.md`](./liblib-client-function-map.md) | `client-architecture.md` §5(路由→page→yaml 段映射) + §10(仿站原语登记) |
 | Client 前端技术栈 | `client/docs/client-frontend-roadmap.md` | `client-architecture.md` §3 §4 §8(消费其结论,不复述) |
@@ -420,7 +420,7 @@ params:
 
 ---
 
-## 5. Server 核心模块(对齐并扩展 go-server-structure.md)
+## 5. Server 核心模块(原 `go-server-structure.md` 内容已并入,无独立分卷)
 
 本节只列**新增项与变更项**。现有目录结构、分层原则(handler→service→repo 单向依赖)、
 handler ≤ 30 行、comfy-user 安全边界等规则见 `go-server-structure.md`,全部保持有效。

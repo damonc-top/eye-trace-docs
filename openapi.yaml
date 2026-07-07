@@ -616,6 +616,9 @@ components:
         imageCount:    { type: integer, minimum: 0, nullable: true }
         # 详情跳转(viewId="model.detail");list 必返,client 直接 navigate。
         viewId:        { type: string, nullable: true }
+        # 归属 sub_tab id,格式 `{type}-{sub}` 如 `image-all`;
+        # null = 不归属任何 sub_tab(归"全部"展示)。
+        subTabId:      { type: string, nullable: true }
 
     ModelList:
       type: object
@@ -698,6 +701,13 @@ paths:
         - in: query
           name: search
           schema: { type: string }
+        - in: query
+          name: subTabId
+          required: false
+          schema:
+            type: string
+            maxLength: 64
+          description: 按 models.sub_tab_id 精确过滤,格式 `{type}-{sub}` 如 `image-all`;不传 = 全量下发
         - in: query
           name: cursor
           schema: { type: string }

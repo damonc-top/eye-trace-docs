@@ -50,9 +50,10 @@
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 brew install go mysql git curl
-# MySQL 起服务:
-brew services start mysql
-mysql_secure_installation  # 设 root 密码,后面 DSN 用
+# 本地开发默认不使用 Homebrew 全局 MySQL 服务作为 EyeTrace 数据源。
+# 使用仓库内 eye-trace-db/mysql-data,通过项目脚本启动独立实例:
+cd /Users/mac/github/eye-trace-ai
+./eye-trace-db/eyetrace-mysql.sh start
 
 # Go 装完后,把 GOPATH/bin 加进 PATH(本机编译的工具都在这)
 echo 'export PATH=$HOME/go/bin:$PATH' >> ~/.zshrc
@@ -95,11 +96,17 @@ which oapi-codegen migrate
 ### 2.4 创建数据库
 
 ```bash
-# 如果用本机 brew mysql:
-mysql -uroot -p
+# 如果需要从空数据目录初始化本机项目内 MySQL,先启动:
+#   cd /Users/mac/github/eye-trace-ai
+#   ./eye-trace-db/eyetrace-mysql.sh start
+#
+# 再用 root 或管理账号连接到 127.0.0.1:3307:
+mysql -uroot -p -h127.0.0.1 -P3307
 > CREATE DATABASE eye_trace CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 > CREATE USER 'eye_trace'@'localhost' IDENTIFIED BY 'eye_trace';
+> CREATE USER 'eye_trace'@'127.0.0.1' IDENTIFIED BY 'eye_trace';
 > GRANT ALL ON eye_trace.* TO 'eye_trace'@'localhost';
+> GRANT ALL ON eye_trace.* TO 'eye_trace'@'127.0.0.1';
 > FLUSH PRIVILEGES;
 > EXIT;
 
@@ -115,7 +122,8 @@ mysql -uroot -p
 export JWT_SECRET="$(openssl rand -hex 32)"
 
 # 必须:MySQL DSN(parseTime 让 driver 解析 time.Time)
-export DB_DSN="eye_trace:eye_trace@tcp(127.0.0.1:3306)/eye_trace?parseTime=true&loc=Local&charset=utf8mb4"
+# 本地开发默认连项目内 eye-trace-db/mysql-data 实例。
+export DB_DSN="eye_trace:eye_trace@tcp(127.0.0.1:3307)/eye_trace?parseTime=true&loc=Local&charset=utf8mb4"
 
 # 可选:监听地址(默认 :8080)
 export SERVER_ADDR=":8080"
@@ -134,7 +142,7 @@ server:
   writeTimeout: 30s
   shutdownTimeout: 10s
 db:
-  dsn: "eye_trace:eye_trace@tcp(127.0.0.1:3306)/eye_trace?parseTime=true&loc=Local&charset=utf8mb4"
+  dsn: "eye_trace:eye_trace@tcp(127.0.0.1:3307)/eye_trace?parseTime=true&loc=Local&charset=utf8mb4"
   maxOpenConns: 20
   maxIdleConns: 5
   connMaxLifetime: 30m

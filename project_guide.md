@@ -674,6 +674,7 @@ CREATE TABLE models (
   name              VARCHAR(255) NOT NULL,
   type              ENUM('checkpoint','lora','template','workflow','video') NOT NULL,
   base_model        VARCHAR(64) NULL,        -- sd15 / sdxl / flux / ...
+  sub_tab_id        VARCHAR(64) NULL,        -- 归属 sub_tab("image-all" / "video-hot" / NULL=无归属);由 home_sub_tabs.by_type_json 派生;见 model-sub-tab-flow.md §3 §4
   civitai_id        VARCHAR(64) NULL,
   preview_image_url VARCHAR(512) NULL,
   tags              JSON,
@@ -681,12 +682,17 @@ CREATE TABLE models (
   created_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   INDEX idx_type (type),
+  INDEX idx_sub_tab (sub_tab_id),
   FULLTEXT idx_name_ft (name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
 
 > `models.type` 枚举与 `client-data-split-guide.md` §5.2 的 `ModelUploadRequest.modelType`
 > (`checkpoint/lora/template/workflow/video`)保持一致。
+>
+> `models.sub_tab_id` 是首页瀑布按 sub_tab 过滤用的归属标签,NULL = 不归属(归入"全部");
+> 不建外键(JSON 列无法强引用),靠运营 / seed 阶段保证一致性。
+> 契约字段 `ModelSummary.subTabId` 与 `GetModelsParams.subTabId` 见 `model-sub-tab-flow.md`。
 
 ### 7.5 Worker 调度的并发安全:SELECT … FOR UPDATE SKIP LOCKED
 

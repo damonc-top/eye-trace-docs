@@ -24,9 +24,13 @@
 | `home-banner-slot-flow.md` | `/api/v1/content/home` 的 `bannerSlots` 字段**端到端打通记录**(设计-落地-排查-完成) | §1 设计(1.1 三种 slot 类型 carousel/static/staticActions、1.2 跳转目标、1.3 契约位置);§2 落地;§3 排查;§4 完成 |
 | `home-recommend-flow.md` | `/api/v1/content/home` 的 `recommend` 字段端到端打通(与 banner 同构:mid-shape → URLBuilder → openapi marshaling) | §1 设计(数据形态源自 liblib 推荐块);§2 落地;§3 排查;§4 完成 |
 | `home-type-tabs-sub-tabs-flow.md` | `/api/v1/content/home` 的 `typeTabs` / `subTabs` 字段端到端打通(单例+version+ETag,纯文本无资源) | §1 设计(源自 default.yaml);§2 落地;§3 排查;§4 完成 |
+| `model-sub-tab-flow.md` | `models.sub_tab_id` 归属标签的端到端设计:1:N 起步,subTabId 命名约定 `{type}-{sub}`、server 端 `?subTabId=` 过滤、admin 只读不入契约 | §1 背景;§2 数据流;§3 契约与命名;§4 DB schema;§5 改动清单;§6 不在范围;§7 验证;§8 风险与回滚 |
 | `liblib-client-function-map.md` | liblib.art 仿站**功能面映射**:1:1 复制可见 client 功能表面,再反推后端 API(英文) | §1 Product Shell;§2 Routes And Pages;§3 Core Interaction Inventory;§4 Demo Data Strategy;§5 First Development Milestone;§6 Live Page Capture Rule;§7 Backend Reverse Map |
 | `minio_operations_manual.md` | MinIO 对象存储**运维手册**:上传素材、写 assets 表、让前端取到图 | §0 一图看懂流程;§1 一次性环境检查;§2 对象 key 命名规范;§3 上传到 MinIO;§4 写 assets 表;§5 让前端拿到图(5a/5b/5c);§6 验证;§7 常见操作脚本(删/替换/查孤儿);§8 启动 MinIO;§9 别踩的坑 |
 | `DEPLOY.md` | Eye Trace Server **部署指南**:macOS / Linux / Windows 三平台手动部署 | §0 一图看懂流程;§1 系统级依赖;§2 macOS(2.5 config/环境变量、2.6 migration+seed、2.7 编启、2.8 Smoke 自测);§3 Linux(systemd 托管);§4 Windows(NSSM 服务);§5 跑测试;§6 常见问题;§7 升级/回滚 |
+| `local-startup.md` | 本地开发栈**启动步骤**:按 MinIO → 项目内 MySQL(`eye-trace-db/mysql-data`,`:3307`) → server → client → Chrome 验收 | §1 启动 MinIO;§2 启动/验证项目内 MySQL;§3 启动 server;§4 启动 client;§5 Chrome 打开验收 |
+| `local-shutdown.md` | 本地开发栈**停止步骤**:按 client → server → 项目内 MySQL → MinIO 反向停止 | §1 停 client;§2 停 server;§3 停项目内 MySQL;§4 停 MinIO;§5 端口验证 |
+| `admin-schema-viewer.md` | **内部只读 DB 结构浏览器**(`cmd/admin-server`):看表结构/样本/migration 来源 + SELECT-only 查询台,用于核对 AI 产出的 DB 结构是否符合预期 | 启动(`make admin` / `make admin-build`+`admin-run`);6 个只读端点;三层写守卫;架构边界(独立二进制,不入 `/api/v1` 契约) |
 
 ### 非 .md 但与本目录契约强相关
 

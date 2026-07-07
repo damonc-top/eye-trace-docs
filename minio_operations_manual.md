@@ -242,6 +242,8 @@ diff <(awk '{print $NF}' /tmp/objects.txt) <(awk 'NR>1{print $3}' /tmp/assets.tx
 
 ## 8. 启动 MinIO(dev 模式)
 
+MinIO 数据目录已统一到仓库内 `eye-trace-res/minio-data/`(与 MySQL 的 `eye-trace-db/mysql-data/` 同模式,被根 `.gitignore` 排除),启动命令以仓库根为 cwd。
+
 如果 MinIO 没跑,装一下:
 
 ```bash
@@ -251,10 +253,11 @@ brew install minio/stable/minio minio/stable/mc   # macOS
 起服务:
 
 ```bash
-mkdir -p ~/.local/minio-data
+cd /Users/mac/github/eye-trace-ai
+mkdir -p eye-trace-res/minio-data
 MINIO_ROOT_USER=eye-trace-admin \
 MINIO_ROOT_PASSWORD=eye-trace-secret-32bytes-1234567890 \
-nohup minio server ~/.local/minio-data \
+nohup minio server ./eye-trace-res/minio-data \
   --address 127.0.0.1:9000 \
   --console-address 127.0.0.1:9001 \
   > /tmp/minio.log 2>&1 &
